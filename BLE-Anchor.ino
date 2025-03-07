@@ -6,15 +6,15 @@
 #include <BLEAdvertisedDevice.h>
 
 // Wi-Fi Credentials
-const char* ssid = "QuirkySteve";  // Replace with your Wi-Fi SSID
-const char* password = "93980728"; // Replace with your Wi-Fi password
+const char* ssid = "WIFI-SSID";  // Replace with your Wi-Fi SSID
+const char* password = "WIFI-PASSWORD"; // Replace with your Wi-Fi password
 
 // MQTT Configuration
 const char* mqtt_server = "172.20.10.2";  // Raspberry Pi IP
 const int mqtt_port = 1883;
-const char* mqtt_user = "mqttuser";  // MQTT Username
-const char* mqtt_password = "yourpassword";  // MQTT Password
-const char* mqtt_topic = "ble/anchor";  // Topic for RSSI values
+const char* mqtt_topic = "ble/distance";  // Topic for distance values
+const char* mqtt_user = "mqttuser"; // MQTT Username
+const char* mqtt_password = "yourpassword"; // MQTT Password
 
 // MQTT Client Setup
 WiFiClient espClient;
@@ -22,10 +22,14 @@ PubSubClient client(espClient);
 
 // BLE Scan Setup
 BLEScan *pBLEScan;
-int scanTime = 5; // Scan duration in seconds
+int scanTime = 3; // Scan duration in seconds
 
-// Device to track
+// Target BLE Device (User)
 #define TARGET_BLE_DEVICE "M5_User"
+
+// Path-loss model parameters (for distance calculation)
+const float RSSI_at_1m = -60;  // Adjust this based on environment
+const float path_loss_exponent = 2.0;  // Environmental factor
 
 void setup() {
     M5.begin();
@@ -65,13 +69,15 @@ void loop() {
     for (int i = 0; i < foundDevices.getCount(); i++) {
         BLEAdvertisedDevice device = foundDevices.getDevice(i);
         
-        // Check if the detected BLE device matches the target user
+        // Check if the detected BLE device matches the user device
         if (device.getName() == TARGET_BLE_DEVICE) {
             int rssi = device.getRSSI();
-            char message[50];
-            sprintf(message, "Anchor RSSI: %d dBm", rssi);
+            float distance = pow(10, ((RSSI_at_1m - rssi) / (10 * path_loss_exponent)));  // Convert RSSI to distance
             
-            // Publish RSSI data to MQTT
+            char message[50];
+            sprintf(message, "BLE Distance: %.2f meters", distance);
+            
+            // Publish distance to MQTT
             client.publish(mqtt_topic, message);
             Serial.println(message);
         }
