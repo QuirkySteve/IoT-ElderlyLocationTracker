@@ -10,6 +10,7 @@ void setup() {
     M5.begin();
     Serial.begin(115200);
 
+    // Initialize BLE
     BLEDevice::init(BLE_DEVICE_NAME);
     BLEServer *pServer = BLEDevice::createServer();
 
