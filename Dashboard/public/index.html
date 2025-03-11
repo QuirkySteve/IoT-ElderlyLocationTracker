@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>MQTT Dashboard</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+        }
+
+        .container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .room-container {
+            position: relative;
+            display: inline-block;
+            margin-top: 20px;
+        }
+
+        #room {
+            background-color: lightgray;
+            border: 2px solid black;
+            position: relative;
+            display: flex;
+            flex-wrap: wrap;
+        }
+
+        .axis-label {
+            position: absolute;
+            font-weight: bold;
+        }
+
+        #x-axis {
+            top: -25px;
+            left: 50%;
+            transform: translateX(-50%);
+        }
+
+        #y-axis {
+            left: -30px;
+            top: 50%;
+            transform: translateY(-50%) rotate(-90deg);
+        }
+
+        .button-container {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            margin: 10px 0;
+        }
+
+        button {
+            padding: 5px 10px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+
+        .base-station {
+            background-color: red;
+            position: absolute;
+            cursor: grab;
+            border-radius: 50%;
+            width: 50px;
+            /* Adjust size as needed to fill the grid */
+            height: 50px;
+        }
+
+
+        .grid-line {
+            position: absolute;
+            background-color: rgba(0, 0, 0, 0.2);
+        }
+    </style>
+</head>
+
+<body>
+    <h1>MQTT Dashboard</h1>
+
+    <div class="container">
+        <div class="button-container">
+            <label>Room Width (m): <span id="width-value">6</span></label>
+            <button onclick="changeSize('width', -1)">-</button>
+            <button onclick="changeSize('width', 1)">+</button>
+        </div>
+
+        <div class="button-container">
+            <label>Room Height (m): <span id="height-value">4</span></label>
+            <button onclick="changeSize('height', -1)">-</button>
+            <button onclick="changeSize('height', 1)">+</button>
+        </div>
+
+        <button onclick="addBaseStation()">Add Base Station</button>
+
+        <div class="room-container">
+            <span id="x-axis" class="axis-label">6m</span>
+            <span id="y-axis" class="axis-label">4m</span>
+            <div id="room"></div>
+        </div>
+    </div>
+
+    <h2>MQTT Messages</h2>
+    <ul id="messages"></ul>
+
+    <script>
+        const room = document.getElementById("room");
+        const widthValue = document.getElementById("width-value");
+        const heightValue = document.getElementById("height-value");
+        const xAxisLabel = document.getElementById("x-axis");
+        const yAxisLabel = document.getElementById("y-axis");
+
+        const SCALE = 50;
+        let widthMeters = 6;
+        let heightMeters = 4;
+        let baseStationCount = 0;
+
+        function updateRoomSize() {
+            widthValue.textContent = widthMeters;
+            heightValue.textContent = heightMeters;
+
+            room.style.width = `${widthMeters * SCALE}px`;
+            room.style.height = `${heightMeters * SCALE}px`;
+
+            xAxisLabel.textContent = `${widthMeters}m`;
+            yAxisLabel.textContent = `${heightMeters}m`;
+
+            drawGrid();
+        }
+
+        function drawGrid() {
+            room.innerHTML = "";
+            for (let i = 1; i < widthMeters; i++) {
+                let vLine = document.createElement("div");
+                vLine.classList.add("grid-line");
+                vLine.style.width = "1px";
+                vLine.style.height = `${heightMeters * SCALE}px`;
+                vLine.style.left = `${i * SCALE}px`;
+                vLine.style.top = "0";
+                vLine.style.position = "absolute";
+                room.appendChild(vLine);
+            }
+            for (let i = 1; i < heightMeters; i++) {
+                let hLine = document.createElement("div");
+                hLine.classList.add("grid-line");
+                hLine.style.height = "1px";
+                hLine.style.width = `${widthMeters * SCALE}px`;
+                hLine.style.top = `${i * SCALE}px`;
+                hLine.style.left = "0";
+                hLine.style.position = "absolute";
+                room.appendChild(hLine);
+            }
+        }
+
+        function changeSize(dimension, change) {
+            if (dimension === "width") {
+                widthMeters = Math.max(1, Math.min(20, widthMeters + change));
+            } else if (dimension === "height") {
+                heightMeters = Math.max(1, Math.min(20, heightMeters + change));
+            }
+            updateRoomSize();
+        }
+
+        function addBaseStation(anchorId) {
+            if (document.getElementById(`base-station-${anchorId}`)) return;
+
+            const baseStation = document.createElement("div");
+            baseStation.classList.add("base-station");
+            baseStation.id = `base-station-${anchorId}`;
+
+            // Create label for anchor number
+            const label = document.createElement("span");
+            label.textContent = anchorId;
+            label.style.color = "white";
+            label.style.fontWeight = "bold";
+            label.style.fontSize = "16px";
+            label.style.position = "absolute";
+            label.style.top = "50%";
+            label.style.left = "50%";
+            label.style.transform = "translate(-50%, -50%)";
+
+            baseStation.appendChild(label);
+
+            let gridX = (anchorId % widthMeters) * SCALE;
+            let gridY = Math.floor(anchorId / widthMeters) * SCALE;
+
+            baseStation.style.left = `${gridX}px`;
+            baseStation.style.top = `${gridY}px`;
+
+            room.appendChild(baseStation);
+            makeDraggable(baseStation);
+        }
+
+
+
+        function makeDraggable(element) {
+            let offsetX, offsetY, isDragging = false;
+
+            element.addEventListener("mousedown", (event) => {
+                isDragging = true;
+                offsetX = event.clientX - element.getBoundingClientRect().left;
+                offsetY = event.clientY - element.getBoundingClientRect().top;
+                element.style.cursor = "grabbing";
+            });
+
+            document.addEventListener("mousemove", (event) => {
+                if (!isDragging) return;
+                let roomRect = room.getBoundingClientRect();
+                let newX = event.clientX - roomRect.left - offsetX;
+                let newY = event.clientY - roomRect.top - offsetY;
+
+                // Snap to grid, ensuring base station takes up one full grid cell
+                newX = Math.round(newX / SCALE) * SCALE;
+                newY = Math.round(newY / SCALE) * SCALE;
+
+                // Ensure the base station stays within the room bounds
+                newX = Math.max(0, Math.min(newX, widthMeters * SCALE - SCALE));
+                newY = Math.max(0, Math.min(newY, heightMeters * SCALE - SCALE));
+
+                element.style.left = `${newX}px`;
+                element.style.top = `${newY}px`;
+            });
+
+            document.addEventListener("mouseup", () => {
+                isDragging = false;
+                element.style.cursor = "grab";
+            });
+        }
+
+        updateRoomSize();
+
+        const ws = new WebSocket("ws://localhost:3000");
+
+        ws.onopen = () => {
+            console.log("WebSocket connected to server");
+        };
+
+        ws.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+
+            if (data.anchorId) {
+                console.log(`Received anchor: ${data.anchorId}`);
+                addBaseStation(data.anchorId);
+            }
+
+            const messageList = document.getElementById("messages");
+            const listItem = document.createElement("li");
+            listItem.textContent = `Topic: ble/anchor/${data.anchorId}, Message: ${data.message}`;
+            messageList.appendChild(listItem);
+        };
+
+
+        ws.onclose = () => {
+            console.log("WebSocket disconnected");
+        };
+
+    </script>
+</body>
+
+</html>
