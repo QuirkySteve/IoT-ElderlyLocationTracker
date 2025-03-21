@@ -1,21 +1,25 @@
 <!DOCTYPE html>
 <html>
+
 <head>
     <title>MQTT Dashboard</title>
     <style>
         body {
             font-family: Arial, sans-serif;
         }
+
         .container {
             display: flex;
             flex-direction: column;
             align-items: center;
         }
+
         .room-container {
             position: relative;
             display: inline-block;
             margin-top: 20px;
         }
+
         #room {
             background-color: lightgray;
             border: 2px solid black;
@@ -23,20 +27,24 @@
             display: flex;
             flex-wrap: wrap;
         }
+
         .axis-label {
             position: absolute;
             font-weight: bold;
         }
+
         #x-axis {
             top: -25px;
             left: 50%;
             transform: translateX(-50%);
         }
+
         #y-axis {
             left: -30px;
             top: 50%;
             transform: translateY(-50%) rotate(-90deg);
         }
+
         .base-station {
             background-color: red;
             position: absolute;
@@ -51,6 +59,7 @@
             font-weight: bold;
             font-size: 16px;
         }
+
         .ble-device {
             background-color: blue;
             position: absolute;
@@ -67,9 +76,10 @@
         }
     </style>
 </head>
+
 <body>
     <h1>MQTT Dashboard</h1>
-    
+
     <label for="width">Width (m):</label>
     <input type="number" id="width" value="6" min="1">
     <label for="height">Height (m):</label>
@@ -93,6 +103,36 @@
         let widthMeters = parseInt(document.getElementById("width").value);
         let heightMeters = parseInt(document.getElementById("height").value);
 
+        class KalmanFilter {
+            constructor(R = 0.01, Q = 1) {
+                this.R = R; // Process noise
+                this.Q = Q; // Measurement noise
+                this.A = 1; // State transition
+                this.B = 0; // Control input
+                this.C = 1; // Measurement mapping
+                this.cov = NaN;
+                this.x = NaN;
+            }
+
+            filter(z) {
+                if (isNaN(this.x)) {
+                    this.x = z;
+                    this.cov = 1;
+                } else {
+                    let predX = this.A * this.x;
+                    let predCov = this.A * this.cov * this.A + this.Q;
+
+                    let K = predCov * this.C / (this.C * predCov * this.C + this.R);
+                    this.x = predX + K * (z - this.C * predX);
+                    this.cov = (1 - K * this.C) * predCov;
+                }
+                return this.x;
+            }
+        }
+
+        // Initialize Kalman Filter instance
+        const kalman = new KalmanFilter();
+
         function updateRoomSize() {
             widthMeters = parseInt(document.getElementById("width").value);
             heightMeters = parseInt(document.getElementById("height").value);
@@ -108,7 +148,9 @@
             const positions = [
                 { id: 1, x: 0, y: 0 },
                 { id: 2, x: (widthMeters - 1) * SCALE, y: 0 },
-                { id: 3, x: (widthMeters / 2 - 0.5) * SCALE, y: (heightMeters - 1) * SCALE }
+                { id: 3, x: (widthMeters / 2) * SCALE, y: (heightMeters / 2) * SCALE },
+                { id: 4, x: 0, y: (heightMeters - 1) * SCALE },
+                { id: 5, x: (widthMeters - 1) * SCALE, y: (heightMeters - 1) * SCALE }
             ];
 
             positions.forEach(pos => {
@@ -132,10 +174,11 @@
                 room.appendChild(newDevice);
             }
 
-            const distance = anchorData.distance; // Distance from the anchor (in meters)
-            // Assuming 1m corresponds to SCALE pixels, position the device accordingly
-            const xPosition = anchorData.x + (distance * SCALE); // Calculate x position
-            const yPosition = anchorData.y + (distance * SCALE); // Calculate y position
+            // Apply Kalman filter to smooth distance readings
+            const filteredDistance = kalman.filter(anchorData.distance);
+
+            const xPosition = anchorData.x + (filteredDistance * SCALE);
+            const yPosition = anchorData.y + (filteredDistance * SCALE);
 
             const bleDeviceElement = document.getElementById("ble-device");
             bleDeviceElement.style.left = `${xPosition}px`;
@@ -146,11 +189,24 @@
 
         const ws = new WebSocket("ws://localhost:3000");
         ws.onopen = () => console.log("WebSocket connected");
+        const MAX_MESSAGES = 5;
+        const messageList = document.getElementById("messages");
+        let messages = [];
+
         ws.onmessage = (event) => {
             const data = JSON.parse(event.data);
-            const messageList = document.getElementById("messages");
             const listItem = document.createElement("li");
             listItem.textContent = `Topic: ble/anchor/${data.anchorId}, Message: ${data.message}`;
+
+            // Add the new message to the array
+            messages.push(listItem);
+
+            // Keep only the most recent 5 messages
+            if (messages.length > MAX_MESSAGES) {
+                messageList.removeChild(messages.shift()); // Remove the oldest message
+            }
+
+            // Append the new message to the list
             messageList.appendChild(listItem);
 
             // Extract the distance data from the message
@@ -163,7 +219,9 @@
                 const anchorPositions = {
                     1: { x: 0, y: 0 },
                     2: { x: (widthMeters - 1) * SCALE, y: 0 },
-                    3: { x: (widthMeters / 2 - 0.5) * SCALE, y: (heightMeters - 1) * SCALE }
+                    3: { x: (widthMeters / 2) * SCALE, y: (heightMeters / 2) * SCALE },
+                    4: { x: 0, y: (heightMeters - 1) * SCALE },
+                    5: { x: (widthMeters - 1) * SCALE, y: (heightMeters - 1) * SCALE }
                 };
 
                 if (anchorPositions[anchorId]) {
@@ -171,7 +229,9 @@
                 }
             }
         };
+
         ws.onclose = () => console.log("WebSocket disconnected");
     </script>
 </body>
+
 </html>

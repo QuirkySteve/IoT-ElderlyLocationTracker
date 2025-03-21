@@ -1,6 +1,7 @@
 {
   "dependencies": {
     "express": "^4.21.2",
+    "kalman-filter": "^2.3.0",
     "mqtt": "^5.10.4",
     "ws": "^8.18.1"
   }

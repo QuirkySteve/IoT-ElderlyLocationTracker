@@ -7,7 +7,7 @@ const app = express();
 const server = require('http').createServer(app);
 const wss = new WebSocket.Server({ server });
 
-const MQTT_BROKER = 'mqtt:172.20.10.2'; // Change as needed
+const MQTT_BROKER = 'mqtt:10.132.21.209'; // Change as needed
 const MQTT_TOPICS = ['ble/anchor/+'];
 
 const mqttClient = mqtt.connect(MQTT_BROKER);
