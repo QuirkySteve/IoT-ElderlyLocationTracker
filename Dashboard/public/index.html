@@ -1,177 +1,149 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>MQTT Dashboard</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-        }
-        .container {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-        }
-        .room-container {
-            position: relative;
-            display: inline-block;
-            margin-top: 20px;
-        }
-        #room {
-            background-color: lightgray;
-            border: 2px solid black;
-            position: relative;
-            display: flex;
-            flex-wrap: wrap;
-        }
-        .axis-label {
-            position: absolute;
-            font-weight: bold;
-        }
-        #x-axis {
-            top: -25px;
-            left: 50%;
-            transform: translateX(-50%);
-        }
-        #y-axis {
-            left: -30px;
-            top: 50%;
-            transform: translateY(-50%) rotate(-90deg);
-        }
-        .base-station {
-            background-color: red;
-            position: absolute;
-            cursor: grab;
-            border-radius: 50%;
-            width: 50px;
-            height: 50px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: white;
-            font-weight: bold;
-            font-size: 16px;
-        }
-        .ble-device {
-            background-color: blue;
-            position: absolute;
-            cursor: pointer;
-            border-radius: 50%;
-            width: 30px;
-            height: 30px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: white;
-            font-weight: bold;
-            font-size: 12px;
-        }
-    </style>
+  <title>MQTT Location Tracker</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+    }
+    .container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    .room-container {
+      position: relative;
+      margin-top: 20px;
+    }
+    #room {
+      background-color: lightgray;
+      border: 2px solid black;
+      position: relative;
+    }
+    .axis-label {
+      position: absolute;
+      font-weight: bold;
+    }
+    #x-axis {
+      top: -25px;
+      left: 50%;
+      transform: translateX(-50%);
+    }
+    #y-axis {
+      left: -30px;
+      top: 50%;
+      transform: translateY(-50%) rotate(-90deg);
+    }
+    .base-station {
+      background-color: red;
+      position: absolute;
+      border-radius: 50%;
+      width: 50px;
+      height: 50px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-weight: bold;
+    }
+    .ble-device {
+      background-color: blue;
+      position: absolute;
+      border-radius: 50%;
+      width: 30px;
+      height: 30px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-weight: bold;
+    }
+  </style>
 </head>
 <body>
-    <h1>MQTT Dashboard</h1>
-    
-    <label for="width">Width (m):</label>
-    <input type="number" id="width" value="6" min="1">
-    <label for="height">Height (m):</label>
-    <input type="number" id="height" value="4" min="1">
-    <button onclick="updateRoomSize()">Update Room Size</button>
+  <h1>Real-Time User Location</h1>
 
-    <div class="container">
-        <div class="room-container">
-            <span id="x-axis" class="axis-label">6m</span>
-            <span id="y-axis" class="axis-label">4m</span>
-            <div id="room"></div>
-        </div>
+  <label for="width">Width (m):</label>
+  <input type="number" id="width" value="6" min="1">
+  <label for="height">Height (m):</label>
+  <input type="number" id="height" value="4" min="1">
+  <button onclick="updateRoomSize()">Update Room Size</button>
+
+  <div class="container">
+    <div class="room-container">
+      <span id="x-axis" class="axis-label">6m</span>
+      <span id="y-axis" class="axis-label">4m</span>
+      <div id="room"></div>
     </div>
+  </div>
 
-    <h2>MQTT Messages</h2>
-    <ul id="messages"></ul>
+  <script>
+    const room = document.getElementById("room");
+    const SCALE = 50;
+    let widthMeters = parseInt(document.getElementById("width").value);
+    let heightMeters = parseInt(document.getElementById("height").value);
 
-    <script>
-        const room = document.getElementById("room");
-        const SCALE = 50;
-        let widthMeters = parseInt(document.getElementById("width").value);
-        let heightMeters = parseInt(document.getElementById("height").value);
+    function updateRoomSize() {
+      widthMeters = parseInt(document.getElementById("width").value);
+      heightMeters = parseInt(document.getElementById("height").value);
+      room.style.width = `${widthMeters * SCALE}px`;
+      room.style.height = `${heightMeters * SCALE}px`;
+      document.getElementById("x-axis").textContent = `${widthMeters}m`;
+      document.getElementById("y-axis").textContent = `${heightMeters}m`;
+      addStaticBaseStations();
+    }
 
-        function updateRoomSize() {
-            widthMeters = parseInt(document.getElementById("width").value);
-            heightMeters = parseInt(document.getElementById("height").value);
-            room.style.width = `${widthMeters * SCALE}px`;
-            room.style.height = `${heightMeters * SCALE}px`;
-            document.getElementById("x-axis").textContent = `${widthMeters}m`;
-            document.getElementById("y-axis").textContent = `${heightMeters}m`;
-            addStaticBaseStations();
-        }
+    function addStaticBaseStations() {
+      room.innerHTML = "";
+      const positions = [
+        { id: 1, x: 0, y: 0 },
+        { id: 2, x: (widthMeters - 1) * SCALE, y: 0 },
+        { id: 3, x: (widthMeters / 2 - 0.5) * SCALE, y: (heightMeters - 1) * SCALE }
+      ];
+      positions.forEach(pos => {
+        const baseStation = document.createElement("div");
+        baseStation.classList.add("base-station");
+        baseStation.textContent = pos.id;
+        baseStation.style.left = `${pos.x}px`;
+        baseStation.style.top = `${pos.y}px`;
+        room.appendChild(baseStation);
+      });
+    }
 
-        function addStaticBaseStations() {
-            room.innerHTML = "";
-            const positions = [
-                { id: 1, x: 0, y: 0 },
-                { id: 2, x: (widthMeters - 1) * SCALE, y: 0 },
-                { id: 3, x: (widthMeters / 2 - 0.5) * SCALE, y: (heightMeters - 1) * SCALE }
-            ];
+    function updateUserPosition(xMeters, yMeters) {
+      let userDot = document.getElementById("ble-device");
+      if (!userDot) {
+        userDot = document.createElement("div");
+        userDot.id = "ble-device";
+        userDot.classList.add("ble-device");
+        userDot.textContent = "U";
+        room.appendChild(userDot);
+      }
 
-            positions.forEach(pos => {
-                const baseStation = document.createElement("div");
-                baseStation.classList.add("base-station");
-                baseStation.textContent = pos.id;
-                baseStation.style.left = `${pos.x}px`;
-                baseStation.style.top = `${pos.y}px`;
-                room.appendChild(baseStation);
-            });
-        }
+      // Convert meters to pixels
+      const xPx = xMeters * SCALE;
+      const yPx = yMeters * SCALE;
 
-        // Add a method to visualize the BLE device based on distance
-        function updateBleDevicePosition(anchorData) {
-            const bleDevice = document.getElementById("ble-device");
-            if (!bleDevice) {
-                const newDevice = document.createElement("div");
-                newDevice.id = "ble-device";
-                newDevice.classList.add("ble-device");
-                newDevice.textContent = 'Joel';
-                room.appendChild(newDevice);
-            }
+      userDot.style.left = `${xPx}px`;
+      userDot.style.top = `${yPx}px`;
+    }
 
-            const distance = anchorData.distance; // Distance from the anchor (in meters)
-            // Assuming 1m corresponds to SCALE pixels, position the device accordingly
-            const xPosition = anchorData.x + (distance * SCALE); // Calculate x position
-            const yPosition = anchorData.y + (distance * SCALE); // Calculate y position
+    updateRoomSize();
 
-            const bleDeviceElement = document.getElementById("ble-device");
-            bleDeviceElement.style.left = `${xPosition}px`;
-            bleDeviceElement.style.top = `${yPosition}px`;
-        }
+    // WebSocket for receiving trilaterated position
+    const ws = new WebSocket("ws://localhost:3000");
+    ws.onopen = () => console.log("WebSocket connected");
 
-        updateRoomSize();
+    ws.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      if (data.position) {
+        const { x, y } = data.position;
+        updateUserPosition(x, y);
+        console.log(`User Position → X: ${x}m, Y: ${y}m`);
+      }
+    };
 
-        const ws = new WebSocket("ws://localhost:3000");
-        ws.onopen = () => console.log("WebSocket connected");
-        ws.onmessage = (event) => {
-            const data = JSON.parse(event.data);
-            const messageList = document.getElementById("messages");
-            const listItem = document.createElement("li");
-            listItem.textContent = `Topic: ble/anchor/${data.anchorId}, Message: ${data.message}`;
-            messageList.appendChild(listItem);
-
-            // Extract the distance data from the message
-            const match = data.message.match(/Distance: ([0-9.]+) meters/);
-            if (match) {
-                const distance = parseFloat(match[1]);
-                const anchorId = data.anchorId;
-
-                // Set the anchor positions
-                const anchorPositions = {
-                    1: { x: 0, y: 0 },
-                    2: { x: (widthMeters - 1) * SCALE, y: 0 },
-                    3: { x: (widthMeters / 2 - 0.5) * SCALE, y: (heightMeters - 1) * SCALE }
-                };
-
-                if (anchorPositions[anchorId]) {
-                    updateBleDevicePosition({ ...anchorPositions[anchorId], distance });
-                }
-            }
-        };
-        ws.onclose = () => console.log("WebSocket disconnected");
-    </script>
+    ws.onclose = () => console.log("WebSocket disconnected");
+  </script>
 </body>
 </html>
