@@ -1,3 +1,9 @@
+// Add at top
+const LoraHandler = require('./lora-handler');
+
+// Initialize after BLE setup
+const loraHandler = new LoraHandler();
+
 // Install dependencies: npm install express ws mqtt
 const express = require('express');
 const WebSocket = require('ws');
@@ -8,7 +14,7 @@ const server = require('http').createServer(app);
 const wss = new WebSocket.Server({ server });
 
 const MQTT_BROKER = 'mqtt://192.168.183.19'; // Note the double slashes
-const MQTT_TOPIC = 'ble/anchors'; // Unified topic from all anchors
+const BLE_TOPIC = 'ble/anchors'; // Topic for BLE data
 
 const mqttClient = mqtt.connect(MQTT_BROKER);
 
@@ -17,37 +23,57 @@ const anchorData = {};
 
 mqttClient.on('connect', () => {
     console.log('Connected to MQTT broker');
-    mqttClient.subscribe(MQTT_TOPIC);
+    mqttClient.subscribe(BLE_TOPIC);
+});
+
+// Handle LoRa messages
+loraHandler.on('lora-data', (data) => {
+    console.log('Received LoRa data:', data);
+    // Send to all connected WebSocket clients
+    wss.clients.forEach(client => {
+        if (client.readyState === WebSocket.OPEN) {
+            client.send(JSON.stringify(data));
+        }
+    });
 });
 
 mqttClient.on('message', (topic, message) => {
     try {
         const data = JSON.parse(message.toString());
-        const anchorId = parseInt(data.anchor);
-        const distance = parseFloat(data.distance);
+        
+        if (topic === BLE_TOPIC) {
+            const anchorId = parseInt(data.anchor);
+            const distance = parseFloat(data.distance);
 
-        anchorData[anchorId] = distance;
+            anchorData[anchorId] = distance;
 
-        // Proceed only when all 3 anchors have reported
-        if (anchorData[1] && anchorData[2] && anchorData[3]) {
-            const position = trilaterate(anchorData[1], anchorData[2], anchorData[3]);
+            // Proceed only when all 3 anchors have reported
+            if (anchorData[1] && anchorData[2] && anchorData[3]) {
+                const position = trilaterate(anchorData[1], anchorData[2], anchorData[3]);
 
-            // Send result to connected WebSocket clients
-            const payload = JSON.stringify({ position });
-            wss.clients.forEach(client => {
-                if (client.readyState === WebSocket.OPEN) {
-                    client.send(payload);
-                }
-            });
+                // Send result to connected WebSocket clients
+                const payload = JSON.stringify({ position });
+                wss.clients.forEach(client => {
+                    if (client.readyState === WebSocket.OPEN) {
+                        client.send(payload);
+                    }
+                });
 
-            // Reset to wait for next full set of data
-            anchorData[1] = null;
-            anchorData[2] = null;
-            anchorData[3] = null;
+                // Reset to wait for next full set of data
+                anchorData[1] = null;
+                anchorData[2] = null;
+                anchorData[3] = null;
+            }
         }
     } catch (err) {
         console.error('Failed to parse MQTT message:', err);
     }
+});
+
+// Add WebSocket connection logging
+wss.on('connection', (ws) => {
+    console.log('New WebSocket client connected');
+    ws.on('close', () => console.log('WebSocket client disconnected'));
 });
 
 app.use(express.static('public'));
@@ -80,3 +106,4 @@ function trilaterate(d1, d2, d3) {
         y: parseFloat(y.toFixed(2))
     };
 }
+

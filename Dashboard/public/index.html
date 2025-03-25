@@ -1,10 +1,11 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>MQTT Location Tracker</title>
+  <title>Location Tracker</title>
   <style>
     body {
       font-family: Arial, sans-serif;
+      margin: 20px;
     }
     .container {
       display: flex;
@@ -58,6 +59,33 @@
       color: white;
       font-weight: bold;
     }
+    .tables-container {
+      display: flex;
+      justify-content: space-around;
+      width: 100%;
+      margin-top: 40px;
+      gap: 20px;
+    }
+    .status-table {
+      border: 1px solid #ccc;
+      padding: 10px;
+      min-width: 200px;
+    }
+    .status-table h2 {
+      margin: 0 0 10px 0;
+      text-align: center;
+    }
+    .status-indicator {
+      text-align: center;
+      padding: 5px;
+      margin: 5px 0;
+    }
+    .present {
+      background-color: #e6f4ea;
+    }
+    .absent {
+      background-color: #fce8e6;
+    }
   </style>
 </head>
 <body>
@@ -74,6 +102,29 @@
       <span id="x-axis" class="axis-label">6m</span>
       <span id="y-axis" class="axis-label">4m</span>
       <div id="room"></div>
+    </div>
+
+    <div class="tables-container">
+      <div class="status-table">
+        <h2>Room 1</h2>
+        <div id="room1-status" class="status-indicator absent">Not Present</div>
+        <div>RSSI: <span id="room1-rssi">--</span> dBm</div>
+        <div>Last Update: <span id="room1-time">Never</span></div>
+      </div>
+
+      <div class="status-table">
+        <h2>Room 2</h2>
+        <div id="room2-status" class="status-indicator absent">Not Present</div>
+        <div>RSSI: <span id="room2-rssi">--</span> dBm</div>
+        <div>Last Update: <span id="room2-time">Never</span></div>
+      </div>
+
+      <div class="status-table">
+        <h2>Out of Facility</h2>
+        <div id="out-status" class="status-indicator absent">Not Present</div>
+        <div>RSSI: <span id="out-rssi">--</span> dBm</div>
+        <div>Last Update: <span id="out-time">Never</span></div>
+      </div>
     </div>
   </div>
 
@@ -128,19 +179,84 @@
       userDot.style.top = `${yPx}px`;
     }
 
+    // RSSI threshold for determining if person is out of facility
+    const OUT_OF_FACILITY_THRESHOLD = -90; // dBm
+
+    // Store latest RSSI values
+    const latestRSSI = {
+        room1: null,
+        room2: null
+    };
+
+    function updateAllRoomStatuses() {
+        // If all RSSI values are below threshold, person is out of facility
+        if (Object.values(latestRSSI).every(rssi => rssi === null || rssi < OUT_OF_FACILITY_THRESHOLD)) {
+            updateRoomStatus('room1', latestRSSI.room1, false);
+            updateRoomStatus('room2', latestRSSI.room2, false);
+            updateRoomStatus('out', Math.min(...Object.values(latestRSSI).filter(v => v !== null)), true);
+            return;
+        }
+
+        // Find the strongest RSSI
+        let strongestRSSI = -Infinity;
+        let strongestRoom = null;
+
+        for (const [room, rssi] of Object.entries(latestRSSI)) {
+            if (rssi !== null && rssi > strongestRSSI && rssi >= OUT_OF_FACILITY_THRESHOLD) {
+                strongestRSSI = rssi;
+                strongestRoom = room;
+            }
+        }
+
+        // Update all room statuses
+        updateRoomStatus('room1', latestRSSI.room1, strongestRoom === 'room1');
+        updateRoomStatus('room2', latestRSSI.room2, strongestRoom === 'room2');
+        updateRoomStatus('out', Math.min(...Object.values(latestRSSI).filter(v => v !== null)), strongestRoom === null);
+    }
+
+    function updateRoomStatus(roomId, rssi, isPresent) {
+        const statusElement = document.getElementById(`${roomId}-status`);
+        const rssiElement = document.getElementById(`${roomId}-rssi`);
+        const timeElement = document.getElementById(`${roomId}-time`);
+
+        if (rssi !== null) {
+            rssiElement.textContent = rssi;
+            timeElement.textContent = new Date().toLocaleTimeString();
+        }
+
+        statusElement.textContent = isPresent ? "Present" : "Not Present";
+        statusElement.className = "status-indicator " + (isPresent ? "present" : "absent");
+    }
+
     updateRoomSize();
 
-    // WebSocket for receiving trilaterated position
+    // WebSocket connection for receiving both BLE and LoRa data
     const ws = new WebSocket("ws://localhost:3000");
     ws.onopen = () => console.log("WebSocket connected");
 
     ws.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      if (data.position) {
-        const { x, y } = data.position;
-        updateUserPosition(x, y);
-        console.log(`User Position → X: ${x}m, Y: ${y}m`);
-      }
+        const data = JSON.parse(event.data);
+        
+        // Handle BLE position data
+        if (data.position) {
+            const { x, y } = data.position;
+            updateUserPosition(x, y);
+        }
+        
+        // Handle LoRa data
+        if (data.type === 'lora') {
+            const { sender, rssi } = data;
+            
+            // Update latest RSSI values
+            if (sender === 'D') {
+                latestRSSI.room1 = rssi;
+            } else if (sender === 'E') {
+                latestRSSI.room2 = rssi;
+            }
+
+            // Update all room statuses
+            updateAllRoomStatuses();
+        }
     };
 
     ws.onclose = () => console.log("WebSocket disconnected");
