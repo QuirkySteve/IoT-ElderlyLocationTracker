@@ -13,7 +13,7 @@ const app = express();
 const server = require('http').createServer(app);
 const wss = new WebSocket.Server({ server });
 
-const MQTT_BROKER = 'mqtt://192.168.183.19'; // Note the double slashes
+const MQTT_BROKER = 'mqtt://192.168.139.19'; // Note the double slashes
 const BLE_TOPIC = 'ble/anchors'; // Topic for BLE data
 
 const mqttClient = mqtt.connect(MQTT_BROKER);
