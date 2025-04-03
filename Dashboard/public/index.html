@@ -182,7 +182,7 @@
     // RSSI threshold for determining if person is out of facility
     const OUT_OF_FACILITY_THRESHOLD = -90; // dBm
 
-    // Store latest RSSI values
+    // Store latest RSSI values (now storing filtered values)
     const latestRSSI = {
         room1: null,
         room2: null
@@ -190,6 +190,7 @@
 
     function updateAllRoomStatuses() {
         // If all RSSI values are below threshold, person is out of facility
+        // Use the filtered values stored in latestRSSI
         if (Object.values(latestRSSI).every(rssi => rssi === null || rssi < OUT_OF_FACILITY_THRESHOLD)) {
             updateRoomStatus('room1', latestRSSI.room1, false);
             updateRoomStatus('room2', latestRSSI.room2, false);
@@ -197,7 +198,7 @@
             return;
         }
 
-        // Find the strongest RSSI
+        // Find the strongest RSSI using filtered values
         let strongestRSSI = -Infinity;
         let strongestRoom = null;
 
@@ -208,20 +209,24 @@
             }
         }
 
-        // Update all room statuses
+        // Update all room statuses using filtered values
         updateRoomStatus('room1', latestRSSI.room1, strongestRoom === 'room1');
         updateRoomStatus('room2', latestRSSI.room2, strongestRoom === 'room2');
         updateRoomStatus('out', Math.min(...Object.values(latestRSSI).filter(v => v !== null)), strongestRoom === null);
     }
 
-    function updateRoomStatus(roomId, rssi, isPresent) {
+    // Renamed parameter 'rssi' to 'filteredRssiValue' for clarity
+    function updateRoomStatus(roomId, filteredRssiValue, isPresent) {
         const statusElement = document.getElementById(`${roomId}-status`);
         const rssiElement = document.getElementById(`${roomId}-rssi`);
         const timeElement = document.getElementById(`${roomId}-time`);
 
-        if (rssi !== null) {
-            rssiElement.textContent = rssi;
+        // Display the filtered RSSI, rounded to one decimal place
+        if (filteredRssiValue !== null) {
+            rssiElement.textContent = filteredRssiValue.toFixed(1); // Round for display
             timeElement.textContent = new Date().toLocaleTimeString();
+        } else {
+             rssiElement.textContent = '--'; // Handle null case
         }
 
         statusElement.textContent = isPresent ? "Present" : "Not Present";
@@ -245,16 +250,17 @@
         
         // Handle LoRa data
         if (data.type === 'lora') {
-            const { sender, rssi } = data;
+            // Use the filtered RSSI value sent from the backend
+            const { sender, filteredRssi } = data; 
             
-            // Update latest RSSI values
+            // Update latest RSSI values using the filtered value
             if (sender === 'D') {
-                latestRSSI.room1 = rssi;
+                latestRSSI.room1 = filteredRssi;
             } else if (sender === 'E') {
-                latestRSSI.room2 = rssi;
+                latestRSSI.room2 = filteredRssi;
             }
 
-            // Update all room statuses
+            // Update all room statuses using the new filtered values
             updateAllRoomStatuses();
         }
     };
