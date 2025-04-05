@@ -94,18 +94,8 @@
 <body>
   <h1>Real-Time User Location</h1>
 
-  <label for="width">Width (m):</label>
-  <input type="number" id="width" value="6" min="1">
-  <label for="height">Height (m):</label>
-  <input type="number" id="height" value="4" min="1">
-  <button onclick="updateRoomSize()">Update Room Size</button>
-
   <div class="container">
-    <div class="room-container">
-      <span id="x-axis" class="axis-label">6m</span>
-      <span id="y-axis" class="axis-label">4m</span>
-      <div id="room"></div>
-    </div>
+    <!-- Original room visualization removed -->
 
     <div class="tables-container">
       <div class="status-table">
@@ -143,71 +133,11 @@
   </div>
 
   <script>
-    // --- Original Room Elements & Config ---
-    const room = document.getElementById("room");
-    const SCALE = 50; // Pixels per meter for original room
-    let widthMeters = parseInt(document.getElementById("width").value);
-    let heightMeters = parseInt(document.getElementById("height").value);
-
     // --- Test Area Elements & Config ---
     const roomTest = document.getElementById("room-test");
     const SCALE_TEST = 300; // Pixels per meter for test room (0.85m * 300 = 255px)
     const testWidthMeters = 0.85;
     const testHeightMeters = 0.85;
-
-
-    // --- Original Room Functions ---
-    function updateRoomSize() {
-      widthMeters = parseInt(document.getElementById("width").value);
-      heightMeters = parseInt(document.getElementById("height").value);
-      room.style.width = `${widthMeters * SCALE}px`;
-      room.style.height = `${heightMeters * SCALE}px`;
-      document.getElementById("x-axis").textContent = `${widthMeters}m`;
-      document.getElementById("y-axis").textContent = `${heightMeters}m`;
-      addStaticBaseStations(); // Update original room anchors if size changes
-    }
-
-    function addStaticBaseStations() {
-        room.innerHTML = ""; // Clear previous anchors
-        // Original anchor positions (approximate for 6x4 room)
-        const positions = [
-            { id: 1, x: 0, y: 0 }, // Top-left in original visualization
-            { id: 2, x: (widthMeters - 1) * SCALE, y: 0 }, // Top-right
-            { id: 3, x: (widthMeters / 2 - 0.5) * SCALE, y: (heightMeters - 1) * SCALE } // Bottom-center
-        ];
-        positions.forEach(pos => {
-            const baseStation = document.createElement("div");
-            baseStation.classList.add("base-station");
-            baseStation.textContent = pos.id;
-            // Adjust position slightly to center the circle
-            baseStation.style.left = `${pos.x - 25}px`;
-            baseStation.style.top = `${pos.y - 25}px`;
-            room.appendChild(baseStation);
-        });
-    }
-
-    function updateUserPosition(xMeters, yMeters) {
-        // This function updates the ORIGINAL room visualization
-        // Note: The scaling/positioning might be incorrect here now
-        // as the server sends coordinates relative to the test setup.
-        let userDot = document.getElementById("ble-device");
-        if (!userDot) {
-            userDot = document.createElement("div");
-            userDot.id = "ble-device";
-            userDot.classList.add("ble-device");
-            userDot.textContent = "U";
-            room.appendChild(userDot);
-        }
-
-        // Convert meters to pixels using original scale
-        const xPx = xMeters * SCALE;
-        // Y needs inversion for original room as well if yMeters is from bottom
-        const yPx = (heightMeters - yMeters) * SCALE;
-
-        // Adjust position slightly to center the circle
-        userDot.style.left = `${xPx - 15}px`;
-        userDot.style.top = `${yPx - 15}px`;
-    }
 
 
     // --- Test Area Functions ---
@@ -316,7 +246,6 @@
     }
 
     // --- Initialization ---
-    updateRoomSize(); // Setup original room
     setupTestRoom(); // Setup test area room
 
     // WebSocket connection for receiving both BLE and LoRa data
@@ -331,8 +260,7 @@
             const { x, y } = data.position;
             // Update the test area visualization
             updateUserPositionTest(x, y);
-            // Optionally update the original room (scaling might be wrong)
-            // updateUserPosition(x, y);
+            // Original room update removed
         }
 
         // Handle LoRa data
