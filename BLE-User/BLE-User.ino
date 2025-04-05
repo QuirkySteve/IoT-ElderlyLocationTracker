@@ -15,26 +15,40 @@ void setup() {
 
     esp_bt_controller_mem_release(ESP_BT_MODE_CLASSIC_BT);
 
-    // BLE Setup
+    // BLE MUST be initialized before querying MAC
     BLEDevice::init(BLE_DEVICE_NAME);
     BLEServer* pServer = BLEDevice::createServer();
-    
+
+    // Get MAC address AFTER BLE is initialized
+    String mac = BLEDevice::getAddress().toString().c_str();
+
+    // LCD Display
+    M5.Lcd.setRotation(3);
+    M5.Lcd.fillScreen(BLACK);
+    M5.Lcd.setTextSize(2);
+    M5.Lcd.setTextColor(CYAN);
+    M5.Lcd.setCursor(0, 0);
+    M5.Lcd.println("🟦 USER DEVICE");
+    M5.Lcd.print("Name: ");
+    M5.Lcd.println(BLE_DEVICE_NAME);
+    M5.Lcd.print("MAC:\n");
+    M5.Lcd.println(mac);
+
+    // BLE Advertising Setup
     pAdvertising = BLEDevice::getAdvertising();
     pAdvertising->setScanResponse(true);
-    pAdvertising->setMinPreferred(0x12);  // Recommended for newer iOS/Android scanning
-    pAdvertising->setMinInterval(250);    // 250ms
-    pAdvertising->setMaxInterval(400);    // 400ms
-    BLEDevice::setPower(ESP_PWR_LVL_P7);  // Max transmission power
-
-    // Optional UUID – only needed if anchors will filter by UUID
+    pAdvertising->setMinPreferred(0x12);
+    pAdvertising->setMinInterval(250);
+    pAdvertising->setMaxInterval(400);
+    BLEDevice::setPower(ESP_PWR_LVL_P7);
     pAdvertising->addServiceUUID(BLEUUID((uint16_t)0x180F));
-
     pAdvertising->start();
+
     Serial.println("M5_User BLE Broadcasting Started");
 }
 
 void loop() {
-    // Keep BLE alive with periodic restart every 10s
+    // Keep BLE alive with periodic restart
     if (millis() - lastAdvertiseRestart > 10000) {
         Serial.println("Restarting BLE Advertising...");
         pAdvertising->stop();
@@ -43,5 +57,5 @@ void loop() {
         lastAdvertiseRestart = millis();
     }
 
-    delay(500);  // Slightly faster loop, still light
+    delay(500);
 }

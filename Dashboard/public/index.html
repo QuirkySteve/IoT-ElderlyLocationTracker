@@ -16,14 +16,6 @@
       position: relative;
       margin-top: 20px;
     }
-    #room {
-      background-color: lightgray;
-      border: 2px solid black;
-      position: relative;
-      /* Add grid background */
-      background-image: linear-gradient(to right, grey 1px, transparent 1px), linear-gradient(to bottom, grey 1px, transparent 1px);
-       background-size: calc(100% / 8) calc(100% / 8);
-    }
     .axis-label {
       position: absolute;
       font-weight: bold;
@@ -89,14 +81,19 @@
     .absent {
       background-color: #fce8e6;
     }
+    #room-test {
+      background-color: lightgray;
+      border: 2px solid black;
+      position: relative;
+      background-image: linear-gradient(to right, grey 1px, transparent 1px), linear-gradient(to bottom, grey 1px, transparent 1px);
+      background-size: 300px 300px; /* 5m grid = one square */
+    }
   </style>
 </head>
 <body>
   <h1>Real-Time User Location</h1>
 
   <div class="container">
-    <!-- Original room visualization removed -->
-
     <div class="tables-container">
       <div class="status-table">
         <h2>Room D</h2>
@@ -122,25 +119,24 @@
 
     <hr style="margin: 40px 0;">
 
-    <h2>Test Area (0.85m x 0.85m)</h2>
+    <h2>Room Space (5m x 5m)</h2>
     <div class="container">
        <div class="room-container">
-         <span id="x-axis-test" class="axis-label">0.85m</span>
-         <span id="y-axis-test" class="axis-label">0.85m</span>
-         <div id="room-test" style="background-size: calc(100% / 8.5) calc(100% / 8.5);"></div>
+         <span id="x-axis-test" class="axis-label">5m</span>
+         <span id="y-axis-test" class="axis-label">5m</span>
+         <div id="room-test"></div>
        </div>
      </div>
   </div>
 
   <script>
-    // --- Test Area Elements & Config ---
+    let isUserPresent = false;
+
     const roomTest = document.getElementById("room-test");
-    const SCALE_TEST = 300; // Pixels per meter for test room (0.85m * 300 = 255px)
-    const testWidthMeters = 0.85;
-    const testHeightMeters = 0.85;
+    const SCALE_TEST = 60; // 1m = 60px
+    const testWidthMeters = 5;
+    const testHeightMeters = 5;
 
-
-    // --- Test Area Functions ---
     function setupTestRoom() {
         roomTest.style.width = `${testWidthMeters * SCALE_TEST}px`;
         roomTest.style.height = `${testHeightMeters * SCALE_TEST}px`;
@@ -150,63 +146,48 @@
     }
 
     function addStaticBaseStationsTest() {
-        roomTest.innerHTML = ""; // Clear previous anchors
-        // Anchor positions for 0.85x0.85m test area (relative to bottom-left 0,0)
-        // Anchor 1: (0, 0.85)
-        // Anchor 2: (0.85, 0.85)
-        // Anchor 3: (0.425, 0)
+        roomTest.innerHTML = "";
         const positions = [
-            { id: 1, x: 0, y: 0.85 },
-            { id: 2, x: 0.85, y: 0.85 },
-            { id: 3, x: 0.425, y: 0 }
+            { id: 1, x: 0, y: 5 },
+            { id: 2, x: 5, y: 5 },
+            { id: 3, x: 2.5, y: 0 }
         ];
         positions.forEach(pos => {
             const baseStation = document.createElement("div");
             baseStation.classList.add("base-station");
             baseStation.textContent = pos.id;
-            // Convert meters to pixels using test scale
             const xPx = pos.x * SCALE_TEST;
-            // Invert Y-axis: HTML top = (Total Height - Y coordinate) * Scale
             const yPx = (testHeightMeters - pos.y) * SCALE_TEST;
-            // Adjust position slightly to center the 50x50 circle
             baseStation.style.left = `${xPx - 25}px`;
             baseStation.style.top = `${yPx - 25}px`;
             roomTest.appendChild(baseStation);
         });
     }
 
-     function updateUserPositionTest(xMeters, yMeters) {
+    function updateUserPositionTest(xMeters, yMeters) {
         let userDot = document.getElementById("ble-device-test");
         if (!userDot) {
             userDot = document.createElement("div");
-            userDot.id = "ble-device-test"; // Unique ID for test area dot
+            userDot.id = "ble-device-test";
             userDot.classList.add("ble-device");
             userDot.textContent = "U";
             roomTest.appendChild(userDot);
         }
 
-        // Convert meters to pixels using test scale
-        const xPx = xMeters * SCALE_TEST;
-        // Invert Y-axis: HTML top = (Total Height - Y coordinate) * Scale
-        const yPx = (testHeightMeters - yMeters) * SCALE_TEST;
+        // Clamp position within 0–5m to prevent overflow beyond grid
+        const xClamped = Math.max(0, Math.min(testWidthMeters, xMeters));
+        const yClamped = Math.max(0, Math.min(testHeightMeters, yMeters));
 
-        // Adjust position slightly to center the 30x30 circle
+        const xPx = xMeters * SCALE_TEST;
+        const yPx = (testHeightMeters - yMeters) * SCALE_TEST;
         userDot.style.left = `${xPx - 15}px`;
         userDot.style.top = `${yPx - 15}px`;
     }
 
-
-    // RSSI threshold for determining if person is out of facility
-    const OUT_OF_FACILITY_THRESHOLD = -90; // dBm
-
-    // Store latest RSSI values
-    const latestRSSI = {
-        room1: null,
-        room2: null
-    };
+    const OUT_OF_FACILITY_THRESHOLD = -90;
+    const latestRSSI = { room1: null, room2: null };
 
     function updateAllRoomStatuses() {
-        // If all RSSI values are below threshold, person is out of facility
         if (Object.values(latestRSSI).every(rssi => rssi === null || rssi < OUT_OF_FACILITY_THRESHOLD)) {
             updateRoomStatus('room1', latestRSSI.room1, false);
             updateRoomStatus('room2', latestRSSI.room2, false);
@@ -214,7 +195,6 @@
             return;
         }
 
-        // Find the strongest RSSI
         let strongestRSSI = -Infinity;
         let strongestRoom = null;
 
@@ -225,56 +205,57 @@
             }
         }
 
-        // Update all room statuses
         updateRoomStatus('room1', latestRSSI.room1, strongestRoom === 'room1');
         updateRoomStatus('room2', latestRSSI.room2, strongestRoom === 'room2');
         updateRoomStatus('out', Math.min(...Object.values(latestRSSI).filter(v => v !== null)), strongestRoom === null);
+
+        if ((latestRSSI.room1 === null && latestRSSI.room2 === null) ||
+            (latestRSSI.room1 < OUT_OF_FACILITY_THRESHOLD && latestRSSI.room2 < OUT_OF_FACILITY_THRESHOLD)) {
+            isUserPresent = false;
+        }
     }
 
     function updateRoomStatus(roomId, rssi, isPresent) {
         const statusElement = document.getElementById(`${roomId}-status`);
         const rssiElement = document.getElementById(`${roomId}-rssi`);
         const timeElement = document.getElementById(`${roomId}-time`);
-
         if (rssi !== null) {
             rssiElement.textContent = rssi;
             timeElement.textContent = new Date().toLocaleTimeString();
         }
-
         statusElement.textContent = isPresent ? "Present" : "Not Present";
         statusElement.className = "status-indicator " + (isPresent ? "present" : "absent");
     }
 
-    // --- Initialization ---
-    setupTestRoom(); // Setup test area room
+    setupTestRoom();
 
-    // WebSocket connection for receiving both BLE and LoRa data
     const ws = new WebSocket("ws://localhost:3000");
     ws.onopen = () => console.log("WebSocket connected");
 
     ws.onmessage = (event) => {
         const data = JSON.parse(event.data);
-        
-        // Handle BLE position data (now contains adjustedPosition relative to 0,0)
+
         if (data.position) {
             const { x, y } = data.position;
-            // Update the test area visualization
-            updateUserPositionTest(x, y);
-            // Original room update removed
+            if (isUserPresent) {
+                updateUserPositionTest(x, y);
+            } else {
+                const userDot = document.getElementById("ble-device-test");
+                if (userDot) userDot.remove();
+            }
+            return;
         }
 
-        // Handle LoRa data
         if (data.type === 'lora') {
             const { sender, rssi } = data;
-            
-            // Update latest RSSI values
+            isUserPresent = true;
+
             if (sender === 'D') {
                 latestRSSI.room1 = rssi;
             } else if (sender === 'E') {
                 latestRSSI.room2 = rssi;
             }
 
-            // Update all room statuses
             updateAllRoomStatuses();
         }
     };
