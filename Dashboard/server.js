@@ -36,7 +36,7 @@ loraHandler.on('lora-data', (data) => {
     console.log('Received LoRa data:', data);
 
     // Determine LoRa status based on RSSI
-    const TRANSIT_THRESHOLD = -70;
+    const TRANSIT_THRESHOLD = -65;
     const OUT_OF_FACILITY_THRESHOLD = -90;
     let status = 'Unknown'; // Default status
 
