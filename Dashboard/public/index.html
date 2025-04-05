@@ -113,6 +113,13 @@
       </div>
 
       <div class="status-table">
+        <h2>Transit</h2>
+        <div id="transit-status" class="status-indicator absent">Not Present</div>
+        <div>RSSI: <span id="transit-rssi">--</span> dBm</div>
+        <div>Last Update: <span id="transit-time">Never</span></div>
+      </div>
+
+      <div class="status-table">
         <h2>Out of Facility</h2>
         <div id="out-status" class="status-indicator absent">Not Present</div>
         <div>RSSI: <span id="out-rssi">--</span> dBm</div>
@@ -196,57 +203,40 @@
     }
 
 
-    // RSSI threshold for determining if person is out of facility
-    const OUT_OF_FACILITY_THRESHOLD = -90; // dBm
-
-    // Store latest RSSI values
-    const latestRSSI = {
-        room1: null,
-        room2: null
-    };
-
-    function updateAllRoomStatuses() {
-        // If all RSSI values are below threshold, person is out of facility
-        if (Object.values(latestRSSI).every(rssi => rssi === null || rssi < OUT_OF_FACILITY_THRESHOLD)) {
-            updateRoomStatus('room1', latestRSSI.room1, false);
-            updateRoomStatus('room2', latestRSSI.room2, false);
-            updateRoomStatus('out', Math.min(...Object.values(latestRSSI).filter(v => v !== null)), true);
-            return;
-        }
-
-        // Find the strongest RSSI
-        let strongestRSSI = -Infinity;
-        let strongestRoom = null;
-
-        for (const [room, rssi] of Object.entries(latestRSSI)) {
-            if (rssi !== null && rssi > strongestRSSI && rssi >= OUT_OF_FACILITY_THRESHOLD) {
-                strongestRSSI = rssi;
-                strongestRoom = room;
-            }
-        }
-
-        // Update all room statuses
-        updateRoomStatus('room1', latestRSSI.room1, strongestRoom === 'room1');
-        updateRoomStatus('room2', latestRSSI.room2, strongestRoom === 'room2');
-        updateRoomStatus('out', Math.min(...Object.values(latestRSSI).filter(v => v !== null)), strongestRoom === null);
-    }
-
-    function updateRoomStatus(roomId, rssi, isPresent) {
-        const statusElement = document.getElementById(`${roomId}-status`);
-        const rssiElement = document.getElementById(`${roomId}-rssi`);
-        const timeElement = document.getElementById(`${roomId}-time`);
-
-        if (rssi !== null) {
-            rssiElement.textContent = rssi;
-            timeElement.textContent = new Date().toLocaleTimeString();
-        }
-
-        statusElement.textContent = isPresent ? "Present" : "Not Present";
-        statusElement.className = "status-indicator " + (isPresent ? "present" : "absent");
-    }
-
     // --- Initialization ---
     setupTestRoom(); // Setup test area room
+
+    // Store latest data for each category
+    const latestLoRaData = {
+        room1: { rssi: null, timestamp: 'Never' },
+        room2: { rssi: null, timestamp: 'Never' },
+        transit: { rssi: null, timestamp: 'Never' },
+        out: { rssi: null, timestamp: 'Never' }
+    };
+
+    // Function to update the displayed RSSI and Time for a specific table
+    function updateRssiTimeDisplay(tableId, rssi, timestamp) {
+        const rssiElement = document.getElementById(`${tableId}-rssi`);
+        const timeElement = document.getElementById(`${tableId}-time`);
+        if (rssiElement) rssiElement.textContent = rssi ?? '--';
+        if (timeElement) timeElement.textContent = timestamp ?? 'Never';
+    }
+
+    // Function to update the "Present" status for a specific table
+    function updatePresenceDisplay(tableId, isPresent) {
+        const statusElement = document.getElementById(`${tableId}-status`);
+        if (statusElement) {
+            statusElement.textContent = isPresent ? "Present" : "Not Present";
+            statusElement.className = "status-indicator " + (isPresent ? "present" : "absent");
+        }
+    }
+
+    // Function to set all tables to "Not Present"
+    function resetPresenceDisplays() {
+        const tableIds = ['room1', 'room2', 'transit', 'out'];
+        tableIds.forEach(id => updatePresenceDisplay(id, false));
+    }
+
 
     // WebSocket connection for receiving both BLE and LoRa data
     const ws = new WebSocket("ws://localhost:3000");
@@ -263,19 +253,59 @@
             // Original room update removed
         }
 
-        // Handle LoRa data
+        // Handle LoRa data (now includes status from backend)
         if (data.type === 'lora') {
-            const { sender, rssi } = data;
-            
-            // Update latest RSSI values
+            const { sender, rssi, status } = data; // Get status from backend data
+            const now = new Date().toLocaleTimeString();
+
+            console.log(`Received LoRa: Status=${status}, RSSI=${rssi}, Sender=${sender}`); // Log received data
+
+            // 1. Update latest data and display RSSI/Time for the relevant category
             if (sender === 'D') {
-                latestRSSI.room1 = rssi;
+                latestLoRaData.room1 = { rssi, timestamp: now };
+                updateRssiTimeDisplay('room1', rssi, now);
             } else if (sender === 'E') {
-                latestRSSI.room2 = rssi;
+                latestLoRaData.room2 = { rssi, timestamp: now };
+                updateRssiTimeDisplay('room2', rssi, now);
+            }
+            // Also update Transit/Out based on the status derived from this message
+            if (status === 'Transit') {
+                 latestLoRaData.transit = { rssi, timestamp: now };
+                 updateRssiTimeDisplay('transit', rssi, now);
+            } else if (status === 'Out of Facility') {
+                 latestLoRaData.out = { rssi, timestamp: now };
+                 updateRssiTimeDisplay('out', rssi, now);
             }
 
-            // Update all room statuses
-            updateAllRoomStatuses();
+            // 2. Reset all "Present" indicators
+            resetPresenceDisplays();
+
+            // 3. Set the single "Present" indicator based on the current message's status
+            if (status === 'In Facility') {
+                // Compare latest RSSI from Room D and Room E (must be > -70)
+                const room1Rssi = latestLoRaData.room1.rssi;
+                const room2Rssi = latestLoRaData.room2.rssi;
+
+                // Check if values are valid numbers and above the threshold implicitly handled by 'In Facility' status
+                const room1Valid = typeof room1Rssi === 'number';
+                const room2Valid = typeof room2Rssi === 'number';
+
+                if (room1Valid && (!room2Valid || room1Rssi >= room2Rssi)) {
+                    updatePresenceDisplay('room1', true);
+                } else if (room2Valid && (!room1Valid || room2Rssi > room1Rssi)) {
+                    updatePresenceDisplay('room2', true);
+                } else {
+                    // This case might happen if the 'In Facility' status came from a sender
+                    // whose data isn't stored yet, or if both are invalid. Keep all Not Present.
+                    console.warn("In Facility status received, but couldn't determine strongest room.");
+                }
+            } else if (status === 'Transit') {
+                updatePresenceDisplay('transit', true);
+            } else if (status === 'Out of Facility') {
+                updatePresenceDisplay('out', true);
+            } else {
+                console.warn("Received unknown LoRa status:", status);
+            }
         }
     };
 

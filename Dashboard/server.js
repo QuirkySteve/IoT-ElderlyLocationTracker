@@ -34,10 +34,34 @@ mqttClient.on('connect', () => {
 // Handle LoRa messages
 loraHandler.on('lora-data', (data) => {
     console.log('Received LoRa data:', data);
+
+    // Determine LoRa status based on RSSI
+    const TRANSIT_THRESHOLD = -70;
+    const OUT_OF_FACILITY_THRESHOLD = -90;
+    let status = 'Unknown'; // Default status
+
+    if (data.rssi != null) { // Check if rssi exists
+        if (data.rssi <= OUT_OF_FACILITY_THRESHOLD) {
+            status = 'Out of Facility';
+        } else if (data.rssi <= TRANSIT_THRESHOLD) { // Implicitly > OUT_OF_FACILITY_THRESHOLD
+            status = 'Transit';
+        } else { // Implicitly > TRANSIT_THRESHOLD
+            status = 'In Facility';
+        }
+    }
+
+    // Prepare payload with status
+    const payload = {
+        type: 'lora',
+        sender: data.sender,
+        rssi: data.rssi,
+        status: status // Add the calculated status
+    };
+
     // Send to all connected WebSocket clients
     wss.clients.forEach(client => {
         if (client.readyState === WebSocket.OPEN) {
-            client.send(JSON.stringify(data));
+            client.send(JSON.stringify(payload)); // Send the payload with status
         }
     });
 });
