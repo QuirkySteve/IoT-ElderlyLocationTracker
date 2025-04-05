@@ -11,13 +11,13 @@ const char* ssid = "HowieFold4";
 const char* password = "howard1234";
 
 // MQTT Broker
-const char* mqtt_server = "192.168.183.19";
+const char* mqtt_server = "192.168.139.19";
 const int mqtt_port = 1883;
 const char* mqtt_user = "mqttuser";
 const char* mqtt_password = "yourpassword";
 
 // Anchor ID (CHANGE THIS FOR EACH DEVICE)
-const int anchor_id = 3;  // Set to 2 or 3 for other anchors
+const int anchor_id = 2;  // Set to 2 or 3 for other anchors
 
 // MQTT topic
 #define MQTT_TOPIC "ble/anchors"
@@ -36,7 +36,7 @@ int rssi_sample_index = 0;
 bool buffer_filled = false;
 
 // Distance calculation model
-const float RSSI_at_1m = -60;
+const float RSSI_at_1m = -75;
 const float path_loss_exponent = 2.0;
 
 // Timing
