@@ -4,6 +4,7 @@
 #include <BLEDevice.h>
 #include <BLEScan.h>
 #include <BLEAdvertisedDevice.h>
+#include <algorithm> // Required for std::sort
 
 // ==== CONFIGURATION ====
 // Wi-Fi
@@ -17,7 +18,7 @@ const char* mqtt_user = "mqttuser";
 const char* mqtt_password = "yourpassword";
 
 // Anchor ID (CHANGE THIS FOR EACH DEVICE)
-const int anchor_id = 2;  // Set to 2 or 3 for other anchors
+const int anchor_id = 1;  // Set to 2 or 3 for other anchors
 
 // MQTT topic
 #define MQTT_TOPIC "ble/anchors"
@@ -36,8 +37,8 @@ int rssi_sample_index = 0;
 bool buffer_filled = false;
 
 // Distance calculation model
-const float RSSI_at_1m = -75;
-const float path_loss_exponent = 2.0;
+const float RSSI_at_1m = -75; // Measured RSSI at 1 meter
+const float path_loss_exponent = 3.0; // Adjusted for indoor/paper environment
 
 // Timing
 unsigned long lastUpdateTime = 0;
@@ -88,23 +89,30 @@ void reconnectMQTT() {
   }
 }
 
+// Function to calculate the median of the RSSI buffer
+int calculateMedian(int arr[], int n) {
+  // Create a temporary array to avoid modifying the original buffer
+  int tempArr[n];
+  for (int i = 0; i < n; i++) {
+    tempArr[i] = arr[i];
+  }
+  // Sort the temporary array
+  std::sort(tempArr, tempArr + n);
+  // Return the middle element (median)
+  return tempArr[n / 2];
+}
+
 float getSmoothedRSSI() {
-  if (!buffer_filled) return -100;
-
-  int minVal = 999, maxVal = -999, sum = 0, count = 0;
-  for (int i = 0; i < RSSI_BUFFER_SIZE; i++) {
-    if (rssi_buffer[i] < minVal) minVal = rssi_buffer[i];
-    if (rssi_buffer[i] > maxVal) maxVal = rssi_buffer[i];
+  if (!buffer_filled) {
+      // Return a default value if buffer isn't full yet
+      // Using -100 as it likely results in a very large distance
+      return -100.0f;
   }
 
-  for (int i = 0; i < RSSI_BUFFER_SIZE; i++) {
-    if (rssi_buffer[i] != minVal && rssi_buffer[i] != maxVal) {
-      sum += rssi_buffer[i];
-      count++;
-    }
-  }
+  // Calculate the median of the current buffer
+  int median_rssi = calculateMedian(rssi_buffer, RSSI_BUFFER_SIZE);
 
-  return (count > 0) ? (float)sum / count : -100;
+  return (float)median_rssi;
 }
 
 void loop() {
@@ -159,4 +167,3 @@ void loop() {
   client.loop();
   delay(200);  // short buffer between scans
 }
-
