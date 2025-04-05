@@ -104,9 +104,13 @@ mqttClient.on('message', (topic, message) => {
                 // The calculated position is relative to Anchor 3's location (0.425, 0)
                 // Adjust to be relative to the bottom-left (0,0) origin of the paper
                 const adjustedPosition = {
-                    x: position.x + 0.425, // Add Anchor 3's X offset
-                    y: position.y           // Y is already relative to bottom edge
-                };
+                    x: position.x + 2.5, // 2.5m offset in X from Anchor 3
+                    y: position.y        // Y stays the same
+                  };                  
+
+                // Clamp adjusted position to 5m x 5m grid
+                adjustedPosition.x = Math.min(Math.max(0, adjustedPosition.x), 5);
+                adjustedPosition.y = Math.min(Math.max(0, adjustedPosition.y), 5);
 
                 console.log(`Calculated position (relative to Anchor 3): x=${position.x.toFixed(2)}, y=${position.y.toFixed(2)}`); // Log raw calculated position
                 console.log(`Adjusted position (relative to paper origin 0,0): x=${adjustedPosition.x.toFixed(2)}, y=${adjustedPosition.y.toFixed(2)}`); // Log final position
@@ -148,9 +152,10 @@ server.listen(3000, () => {
 // Input distances d1, d2, d3 correspond to distances from A(3), B(1), C(2) respectively
 function trilaterate(d1, d2, d3) {
     // Anchor coordinates relative to Anchor 3 (A) in meters
-    const A = { x: 0,     y: 0 };    // Anchor 3 (Origin for calculation)
-    const B = { x: -0.425, y: 0.85 }; // Anchor 1
-    const C = { x: 0.425,  y: 0.85 }; // Anchor 2
+    const A = { x: 0,     y: 0 };     // Anchor 3 at (2.5, 0)
+    const B = { x: -2.5,  y: 5.0 };   // Anchor 1 at (0, 5)
+    const C = { x: 2.5,   y: 5.0 };   // Anchor 2 at (5, 5)
+
 
     // Check for invalid distances (e.g., null, undefined, negative)
     if (d1 == null || d2 == null || d3 == null || d1 < 0 || d2 < 0 || d3 < 0) {
