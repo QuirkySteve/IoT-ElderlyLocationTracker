@@ -18,8 +18,13 @@ const BLE_TOPIC = 'ble/anchors'; // Topic for BLE data
 
 const mqttClient = mqtt.connect(MQTT_BROKER);
 
-// Store latest distances from anchors
-const anchorData = {};
+// Store latest distances and timestamps from anchors
+const anchorData = {
+    1: { distance: null, timestamp: 0 },
+    2: { distance: null, timestamp: 0 },
+    3: { distance: null, timestamp: 0 }
+};
+const DATA_TIMEOUT_MS = 10000; // Optional: Consider data older than 10s stale
 
 mqttClient.on('connect', () => {
     console.log('Connected to MQTT broker');
@@ -44,25 +49,62 @@ mqttClient.on('message', (topic, message) => {
         if (topic === BLE_TOPIC) {
             const anchorId = parseInt(data.anchor);
             const distance = parseFloat(data.distance);
+            const now = Date.now();
 
-            anchorData[anchorId] = distance;
+            // Update the specific anchor's data
+            if (anchorData.hasOwnProperty(anchorId)) {
+                anchorData[anchorId].distance = distance;
+                anchorData[anchorId].timestamp = now;
+                console.log(`Received from Anchor ${anchorId}: ${distance.toFixed(2)}m`); // Log received data
+            } else {
+                console.warn(`Received data for unknown anchor ID: ${anchorId}`);
+                return; // Skip if anchor ID is invalid
+            }
 
-            // Proceed only when all 3 anchors have reported
-            if (anchorData[1] && anchorData[2] && anchorData[3]) {
-                const position = trilaterate(anchorData[1], anchorData[2], anchorData[3]);
+            // Check if we have at least one reading from all anchors
+            // Optional: Add timeout check: && (now - anchorData[id].timestamp < DATA_TIMEOUT_MS)
+            const canCalculate = Object.values(anchorData).every(anchor => anchor.distance !== null);
 
-                // Send result to connected WebSocket clients
-                const payload = JSON.stringify({ position });
+            if (canCalculate) {
+                const d1 = anchorData[1].distance;
+                const d2 = anchorData[2].distance;
+                const dist1 = anchorData[1].distance; // Distance from Anchor 1
+                const dist2 = anchorData[2].distance; // Distance from Anchor 2
+                const dist3 = anchorData[3].distance; // Distance from Anchor 3 (Origin for calculation)
+
+                console.log(`Attempting trilateration with distances: Anchor1=${dist1?.toFixed(2)}, Anchor2=${dist2?.toFixed(2)}, Anchor3=${dist3?.toFixed(2)}`); // Log distances used
+
+                // Pass distances in the order: d_Origin(A=3), d_B(B=1), d_C(C=2)
+                const position = trilaterate(dist3, dist1, dist2);
+
+                // The calculated position is relative to Anchor 3's location (0.425, 0)
+                // Adjust to be relative to the bottom-left (0,0) origin of the paper
+                const adjustedPosition = {
+                    x: position.x + 2.5, // 2.5m offset in X from Anchor 3
+                    y: position.y        // Y stays the same
+                  };                  
+
+                // Clamp adjusted position to 5m x 5m grid
+                adjustedPosition.x = Math.min(Math.max(0, adjustedPosition.x), 5);
+                adjustedPosition.y = Math.min(Math.max(0, adjustedPosition.y), 5);
+
+                console.log(`Calculated position (relative to Anchor 3): x=${position.x.toFixed(2)}, y=${position.y.toFixed(2)}`); // Log raw calculated position
+                console.log(`Adjusted position (relative to paper origin 0,0): x=${adjustedPosition.x.toFixed(2)}, y=${adjustedPosition.y.toFixed(2)}`); // Log final position
+
+                // Send adjusted result to connected WebSocket clients
+                const payload = JSON.stringify({ position: adjustedPosition });
                 wss.clients.forEach(client => {
                     if (client.readyState === WebSocket.OPEN) {
-                        client.send(payload);
+                        client.send(payload); // Send the adjusted position
                     }
                 });
 
-                // Reset to wait for next full set of data
-                anchorData[1] = null;
-                anchorData[2] = null;
-                anchorData[3] = null;
+                // No longer reset data - keep last known values
+                // anchorData[1] = null; // Removed
+                // anchorData[2] = null; // Removed
+                // anchorData[3] = null; // Removed
+            } else {
+                 console.log("Waiting for data from all anchors...");
             }
         }
     } catch (err) {
@@ -82,28 +124,42 @@ server.listen(3000, () => {
     console.log('Server running on http://localhost:3000');
 });
 
-// Trilateration logic assuming anchors are at fixed known positions
+// Trilateration logic using Anchor 3 as the origin (A) for calculation
+// Input distances d1, d2, d3 correspond to distances from A(3), B(1), C(2) respectively
 function trilaterate(d1, d2, d3) {
-    // Anchor coordinates in meters (adjust as needed)
-    const A = { x: 0, y: 0 };   // Anchor 1
-    const B = { x: 6, y: 0 };   // Anchor 2
-    const C = { x: 3, y: 4 };   // Anchor 3
+    // Anchor coordinates relative to Anchor 3 (A) in meters
+    const A = { x: 0,     y: 0 };     // Anchor 3 at (2.5, 0)
+    const B = { x: -2.5,  y: 5.0 };   // Anchor 1 at (0, 5)
+    const C = { x: 2.5,   y: 5.0 };   // Anchor 2 at (5, 5)
 
-    // Formulas from trilateration method
-    const A2 = 2 * (B.x - A.x);
-    const B2 = 2 * (B.y - A.y);
-    const C2 = 2 * (C.x - A.x);
-    const D2 = 2 * (C.y - A.y);
 
-    const E2 = d1 ** 2 - d2 ** 2 - A.x ** 2 - A.y ** 2 + B.x ** 2 + B.y ** 2;
-    const F2 = d1 ** 2 - d3 ** 2 - A.x ** 2 - A.y ** 2 + C.x ** 2 + C.y ** 2;
+    // Check for invalid distances (e.g., null, undefined, negative)
+    if (d1 == null || d2 == null || d3 == null || d1 < 0 || d2 < 0 || d3 < 0) {
+        console.error("Trilateration error: Invalid distance input.", {d1, d2, d3});
+        return { x: 0, y: 0 }; // Return default or last known position
+    }
 
-    const x = (E2 * D2 - F2 * B2) / (A2 * D2 - C2 * B2);
-    const y = (A2 * F2 - C2 * E2) / (A2 * D2 - C2 * B2);
+    // Formulas from trilateration method (using A as origin)
+    const A2 = 2 * B.x; // 2 * (B.x - A.x) = 2 * (B.x - 0)
+    const B2 = 2 * B.y; // 2 * (B.y - A.y) = 2 * (B.y - 0)
+    const C2 = 2 * C.x; // 2 * (C.x - A.x) = 2 * (C.x - 0)
+    const D2 = 2 * C.y; // 2 * (C.y - A.y) = 2 * (C.y - 0)
+
+    const E2 = d1 ** 2 - d2 ** 2 + B.x ** 2 + B.y ** 2; // d1^2 - d2^2 - A.x^2 - A.y^2 + B.x^2 + B.y^2 = d1^2 - d2^2 + B.x^2 + B.y^2
+    const F2 = d1 ** 2 - d3 ** 2 + C.x ** 2 + C.y ** 2; // d1^2 - d3^2 - A.x^2 - A.y^2 + C.x^2 + C.y^2 = d1^2 - d3^2 + C.x^2 + C.y^2
+
+    // Calculate denominator
+    const denominator = (A2 * D2 - C2 * B2);
+    if (Math.abs(denominator) < 1e-6) { // Avoid division by zero or near-zero
+         console.error("Trilateration error: Denominator too small (anchors might be collinear or distances inconsistent).", {A2, B2, C2, D2});
+         return { x: 0, y: 0 }; // Or return last known good position
+    }
+
+    const x = (E2 * D2 - F2 * B2) / denominator;
+    const y = (A2 * F2 - C2 * E2) / denominator;
 
     return {
-        x: parseFloat(x.toFixed(2)),
+        x: parseFloat(x.toFixed(2)), // Return value relative to Anchor 3
         y: parseFloat(y.toFixed(2))
     };
 }
-
