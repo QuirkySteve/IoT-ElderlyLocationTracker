@@ -128,6 +128,20 @@ mqttClient.on('message', (topic, message) => {
     try {
         const data = JSON.parse(message.toString());
         
+        // Get receive timestamp
+        const receivedAt = new Date().toISOString(); // Broker receive time
+
+        console.log(`📦 MQTT Payload from Anchor ${data.anchor}`);
+        console.log(`🔹 Sent at    : ${data.timestamp}`);
+        console.log(`🔹 Received at: ${receivedAt}`);
+
+        // Now you can also store or compare these if needed
+        // Example: calculate latency in ms if both are ISO strings
+        const sentTime = new Date(data.timestamp);
+        const recvTime = new Date(receivedAt);
+        const latencyMs = recvTime - sentTime;
+        console.log(`⏱️  Approx. Latency: ${latencyMs} ms`);
+
         if (topic === BLE_TOPIC) {
             const anchorId = parseInt(data.anchor);
             const distance = parseFloat(data.distance);
@@ -174,7 +188,13 @@ mqttClient.on('message', (topic, message) => {
                 console.log(`Adjusted position (relative to paper origin 0,0): x=${adjustedPosition.x.toFixed(2)}, y=${adjustedPosition.y.toFixed(2)}`); // Log final position
 
                 // Send adjusted result to connected WebSocket clients
-                const payload = JSON.stringify({ position: adjustedPosition });
+                const payload = JSON.stringify({
+                    position: adjustedPosition,
+                    sentAt: data.timestamp, // from anchor payload
+                    receivedAt: receivedAt,
+                    latency: latencyMs
+                  });
+                  
                 wss.clients.forEach(client => {
                     if (client.readyState === WebSocket.OPEN) {
                         client.send(payload); // Send the adjusted position
