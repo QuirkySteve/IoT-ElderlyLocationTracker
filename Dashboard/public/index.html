@@ -45,6 +45,7 @@
     .ble-device {
       background-color: blue;
       position: absolute;
+      display: none; /* Hide by default */
       border-radius: 50%;
       width: 30px;
       height: 30px;
@@ -290,60 +291,64 @@
             // Original room update removed
         }
 
-        // Handle LoRa data (now includes status from backend)
-        if (data.type === 'lora') {
-            const { sender, rssi, status } = data; // Get status from backend data
-            const now = new Date().toLocaleTimeString();
+        // Handle LoRa status data from backend
+        if (data.type === 'lora_status') { // Corrected type check
+            const { status, roomD, roomE } = data; // Extract new payload structure
 
-            console.log(`Received LoRa: Status=${status}, RSSI=${rssi}, Sender=${sender}`); // Log received data
+            console.log(`Received LoRa Status: ${status}, RoomD: ${JSON.stringify(roomD)}, RoomE: ${JSON.stringify(roomE)}`);
 
-            // 1. Update latest data and display RSSI/Time for the relevant category
-            if (sender === 'D') {
-                latestLoRaData.room1 = { rssi, timestamp: now };
-                updateRssiTimeDisplay('room1', rssi, now);
-            } else if (sender === 'E') {
-                latestLoRaData.room2 = { rssi, timestamp: now };
-                updateRssiTimeDisplay('room2', rssi, now);
-            }
-            // Also update Transit/Out based on the status derived from this message
-            if (status === 'Transit') {
-                 latestLoRaData.transit = { rssi, timestamp: now };
-                 updateRssiTimeDisplay('transit', rssi, now);
-            } else if (status === 'Out of Facility') {
-                 latestLoRaData.out = { rssi, timestamp: now };
-                 updateRssiTimeDisplay('out', rssi, now);
-            }
+            // 1. Update displayed RSSI/Time for both rooms using data from payload
+            updateRssiTimeDisplay('room1', roomD.rssi, roomD.timestamp);
+            updateRssiTimeDisplay('room2', roomE.rssi, roomE.timestamp);
 
             // 2. Reset all "Present" indicators
             resetPresenceDisplays();
 
-            // 3. Set the single "Present" indicator based on the current message's status
-            if (status === 'In Facility') {
-                // Compare latest RSSI from Room D and Room E (must be > -70)
-                const room1Rssi = latestLoRaData.room1.rssi;
-                const room2Rssi = latestLoRaData.room2.rssi;
+            // 3. Set the single "Present" indicator based on the status
+            let toastMessage = null;
+            let presentTableId = null;
+            let presentRssi = null;
+            let presentTimestamp = null;
 
-                // Check if values are valid numbers and above the threshold implicitly handled by 'In Facility' status
-                const room1Valid = typeof room1Rssi === 'number';
-                const room2Valid = typeof room2Rssi === 'number';
-
-                if (room1Valid && (!room2Valid || room1Rssi >= room2Rssi)) {
-                    updatePresenceDisplay('room1', true);
-                } else if (room2Valid && (!room1Valid || room2Rssi > room1Rssi)) {
-                    updatePresenceDisplay('room2', true);
-                } else {
-                    // This case might happen if the 'In Facility' status came from a sender
-                    // whose data isn't stored yet, or if both are invalid. Keep all Not Present.
-                    console.warn("In Facility status received, but couldn't determine strongest room.");
-                }
+            if (status === 'In Room D') {
+                presentTableId = 'room1';
+            } else if (status === 'In Room E') {
+                presentTableId = 'room2';
             } else if (status === 'Transit') {
-                updatePresenceDisplay('transit', true);
-                showToast('User is in Transit'); // Show toast
+                presentTableId = 'transit';
+                toastMessage = 'User is in Transit';
+                // Use the weaker signal for display in Transit box (more negative)
+                presentRssi = (roomD.rssi != null && roomE.rssi != null) ? Math.min(roomD.rssi, roomE.rssi) : (roomD.rssi ?? roomE.rssi);
+                presentTimestamp = (roomD.rssi != null && roomE.rssi != null) ? (roomD.timestamp > roomE.timestamp ? roomD.timestamp : roomE.timestamp) : (roomD.timestamp !== 'Never' ? roomD.timestamp : roomE.timestamp); // Use latest timestamp
+                updateRssiTimeDisplay('transit', presentRssi, presentTimestamp);
             } else if (status === 'Out of Facility') {
-                updatePresenceDisplay('out', true);
-                showToast('User is Out of Facility'); // Show toast
+                presentTableId = 'out';
+                toastMessage = 'User is Out of Facility';
+                 // Use the weaker signal for display in Out box
+                presentRssi = (roomD.rssi != null && roomE.rssi != null) ? Math.min(roomD.rssi, roomE.rssi) : (roomD.rssi ?? roomE.rssi);
+                presentTimestamp = (roomD.rssi != null && roomE.rssi != null) ? (roomD.timestamp > roomE.timestamp ? roomD.timestamp : roomE.timestamp) : (roomD.timestamp !== 'Never' ? roomD.timestamp : roomE.timestamp); // Use latest timestamp
+                updateRssiTimeDisplay('out', presentRssi, presentTimestamp);
             } else {
                 console.warn("Received unknown LoRa status:", status);
+            }
+            // Mark the determined table as present
+            if (presentTableId) {
+                updatePresenceDisplay(presentTableId, true);
+            }
+
+            // Show/Hide BLE dot based on LoRa status
+            const userDot = document.getElementById("ble-device-test");
+            if (userDot) {
+                if (status === 'In Room D' || status === 'In Room E') {
+                    userDot.style.display = 'flex'; // Show the dot (use 'flex' as it was styled before)
+                } else {
+                    userDot.style.display = 'none'; // Hide the dot
+                }
+            }
+
+            // Show toast if needed
+            if (toastMessage) {
+                showToast(toastMessage);
             }
         }
     };

@@ -24,6 +24,12 @@ const anchorData = {
     2: { distance: null, timestamp: 0 },
     3: { distance: null, timestamp: 0 }
 };
+// Store latest RSSI and timestamps from LoRa rooms
+const loraRoomData = {
+    'D': { rssi: null, timestamp: 0 }, // Room D
+    'E': { rssi: null, timestamp: 0 }  // Room E
+};
+const LORA_DATA_TIMEOUT_MS = 15000; // Consider LoRa data older than 15s stale
 const DATA_TIMEOUT_MS = 10000; // Optional: Consider data older than 10s stale
 
 mqttClient.on('connect', () => {
@@ -31,37 +37,89 @@ mqttClient.on('connect', () => {
     mqttClient.subscribe(BLE_TOPIC);
 });
 
-// Handle LoRa messages
+// Handle LoRa messages - New logic based on combined room state
 loraHandler.on('lora-data', (data) => {
     console.log('Received LoRa data:', data);
+    const now = Date.now();
+    const sender = data.sender; // 'D' or 'E'
+    const rssi = data.rssi;
 
-    // Determine LoRa status based on RSSI
-    const TRANSIT_THRESHOLD = -65;
-    const OUT_OF_FACILITY_THRESHOLD = -90;
-    let status = 'Unknown'; // Default status
-
-    if (data.rssi != null) { // Check if rssi exists
-        if (data.rssi <= OUT_OF_FACILITY_THRESHOLD) {
-            status = 'Out of Facility';
-        } else if (data.rssi <= TRANSIT_THRESHOLD) { // Implicitly > OUT_OF_FACILITY_THRESHOLD
-            status = 'Transit';
-        } else { // Implicitly > TRANSIT_THRESHOLD
-            status = 'In Facility';
-        }
+    // Update the specific room's data
+    if (loraRoomData.hasOwnProperty(sender)) {
+        loraRoomData[sender] = { rssi: rssi, timestamp: now };
+    } else {
+        console.warn(`Received LoRa data from unknown sender: ${sender}`);
+        return;
     }
 
-    // Prepare payload with status
+    // Get latest data for both rooms, checking for staleness
+    const roomD = loraRoomData['D'];
+    const roomE = loraRoomData['E'];
+
+    const isDValid = roomD.rssi !== null && (now - roomD.timestamp < LORA_DATA_TIMEOUT_MS);
+    const isEValid = roomE.rssi !== null && (now - roomE.timestamp < LORA_DATA_TIMEOUT_MS);
+
+    const rssiD = isDValid ? roomD.rssi : null;
+    const rssiE = isEValid ? roomE.rssi : null;
+
+    let calculatedStatus = 'Unknown';
+    const TRANSIT_LOW_THRESHOLD = -90;
+    const TRANSIT_HIGH_THRESHOLD = -65; // New threshold from user
+    const OUT_THRESHOLD = -90;
+
+    // Determine status based on combined valid data with REVISED priority
+    // Priority 1: In Room (At least one signal is strong)
+    if ((isDValid && rssiD > TRANSIT_HIGH_THRESHOLD) || (isEValid && rssiE > TRANSIT_HIGH_THRESHOLD)) {
+        if (isDValid && isEValid) {
+            // Both valid and at least one is strong, compare them
+            calculatedStatus = (rssiD >= rssiE) ? 'In Room D' : 'In Room E'; // Higher RSSI wins
+        } else if (isDValid) {
+            // Only D is valid and it's strong
+            calculatedStatus = 'In Room D';
+        } else {
+            // Only E is valid and it's strong
+            calculatedStatus = 'In Room E';
+        }
+    }
+    // Priority 2: Transit (Not In Room, but at least one signal is in transit range)
+    else if ((isDValid && rssiD > TRANSIT_LOW_THRESHOLD) || (isEValid && rssiE > TRANSIT_LOW_THRESHOLD)) {
+         // Check if the *other* signal makes it Out of Facility (overrides Transit)
+         // Note: We already know neither signal is > TRANSIT_HIGH_THRESHOLD from the check above
+         if (isDValid && rssiD <= OUT_THRESHOLD) {
+             calculatedStatus = 'Out of Facility'; // If D is OOF, overall is OOF
+         } else if (isEValid && rssiE <= OUT_THRESHOLD) {
+             calculatedStatus = 'Out of Facility'; // If E is OOF, overall is OOF
+         } else {
+            calculatedStatus = 'Transit'; // Otherwise, it's Transit
+         }
+    }
+    // Priority 3: Out of Facility (Not In Room or Transit, and both signals are weak)
+    else if (isDValid && isEValid && rssiD <= OUT_THRESHOLD && rssiE <= OUT_THRESHOLD) {
+        calculatedStatus = 'Out of Facility';
+    }
+    // Handle cases where only one signal is valid and it's weak (OOF)
+    else if (isDValid && rssiD <= OUT_THRESHOLD) {
+        calculatedStatus = 'Out of Facility';
+    }
+    else if (isEValid && rssiE <= OUT_THRESHOLD) {
+        calculatedStatus = 'Out of Facility';
+    }
+    // If none of the above, status remains 'Unknown'
+
+    // Prepare payload with combined status and individual room data
     const payload = {
-        type: 'lora',
-        sender: data.sender,
-        rssi: data.rssi,
-        status: status // Add the calculated status
+        type: 'lora_status', // New type
+        status: calculatedStatus,
+        roomD: { rssi: rssiD, timestamp: isDValid ? new Date(roomD.timestamp).toLocaleTimeString() : 'Never' }, // Send formatted time
+        roomE: { rssi: rssiE, timestamp: isEValid ? new Date(roomE.timestamp).toLocaleTimeString() : 'Never' }  // Send formatted time
     };
+
+    console.log('Determined LoRa Status:', calculatedStatus, 'Payload:', payload); // Log determined status
 
     // Send to all connected WebSocket clients
     wss.clients.forEach(client => {
         if (client.readyState === WebSocket.OPEN) {
-            client.send(JSON.stringify(payload)); // Send the payload with status
+            client.send(JSON.stringify(payload));
         }
     });
 });
