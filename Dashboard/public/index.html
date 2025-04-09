@@ -159,6 +159,15 @@
      </div>
   </div>
 
+  <hr style="margin: 40px 0;">
+  <h2>Telemetry Info</h2>
+  <div id="telemetry">
+    <p><strong>Sent At:</strong> <span id="sent-at">--</span></p>
+    <p><strong>Received At:</strong> <span id="received-at">--</span></p>
+    <p><strong>Latency:</strong> <span id="latency">--</span> ms</p>
+  </div>
+
+
   <!-- Toast Container -->
   <div id="toast-container"></div>
 
@@ -276,6 +285,12 @@
         }, duration);
     }
 
+    function updateLatencyInfo(sentAt, receivedAt, latencyMs) {
+      document.getElementById("sent-at").textContent = sentAt || "--";
+      document.getElementById("received-at").textContent = receivedAt || "--";
+      document.getElementById("latency").textContent = typeof latencyMs === "number" ? `${latencyMs} ms` : "--";
+    }
+
 
     const ws = new WebSocket("ws://localhost:3000");
     ws.onopen = () => console.log("WebSocket connected");
@@ -284,10 +299,13 @@
         const data = JSON.parse(event.data);
 
         if (data.position) {
-            const { x, y } = data.position;
-            // Update the test area visualization
-            updateUserPositionTest(x, y);
-            // Original room update removed
+          const { x, y } = data.position;
+          updateUserPositionTest(x, y);
+
+          // ⏱ Update telemetry panel if data is present
+          if (data.sentAt && data.receivedAt && typeof data.latency === 'number') {
+            updateLatencyInfo(data.sentAt, data.receivedAt, data.latency);
+          }
         }
 
         // Handle LoRa data (now includes status from backend)

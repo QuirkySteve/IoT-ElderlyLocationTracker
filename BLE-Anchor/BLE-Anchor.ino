@@ -5,21 +5,27 @@
 #include <BLEScan.h>
 #include <BLEAdvertisedDevice.h>
 #include <algorithm>
+#include <time.h>
 
 // ==== CONFIGURATION ====
+// Wi-Fi
 const char* ssid = "HowieFold4";
 const char* password = "howard1234";
+
+// MQTT
 const char* mqtt_server = "192.168.139.19";
 const int mqtt_port = 1883;
 const char* mqtt_user = "mqttuser";
 const char* mqtt_password = "yourpassword";
-const int anchor_id = 3;  // Change for each anchor
+const int anchor_id = 3;  // Change this per anchor
 #define MQTT_TOPIC "ble/anchors"
-#define TARGET_BLE_DEVICE "M5_User"
 
 // BLE
+#define TARGET_BLE_DEVICE "M5_User"
 BLEScan* pBLEScan;
-int scanTime = 0.2;
+int scanTime = 0.2;  // 200ms
+
+// RSSI buffer
 #define RSSI_BUFFER_SIZE 5
 int rssi_buffer[RSSI_BUFFER_SIZE];
 int rssi_sample_index = 0;
@@ -35,27 +41,47 @@ WiFiClient espClient;
 PubSubClient client(espClient);
 unsigned long lastSeenTime = 0;
 
+// Time (NTP)
+const char* ntpServer = "pool.ntp.org";
+const long gmtOffset_sec = 8 * 3600;  // GMT+8
+const int daylightOffset_sec = 0;
+
+// ==== SETUP ====
 void setup() {
   M5.begin();
   Serial.begin(115200);
   esp_bt_controller_mem_release(ESP_BT_MODE_CLASSIC_BT);
 
+  // Wi-Fi
   WiFi.begin(ssid, password);
   while (WiFi.status() != WL_CONNECTED) {
     delay(200);
     Serial.print(".");
   }
-  Serial.println("\nWiFi connected!");
+  Serial.println("\n✅ WiFi connected");
 
+  // MQTT
   client.setServer(mqtt_server, mqtt_port);
   reconnectMQTT();
 
+  // BLE
   BLEDevice::init("");
   pBLEScan = BLEDevice::getScan();
   pBLEScan->setActiveScan(true);
   pBLEScan->setInterval(100);
   pBLEScan->setWindow(90);
 
+  // NTP
+  configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
+  struct tm timeinfo;
+  Serial.println("Waiting for time sync...");
+  while (!getLocalTime(&timeinfo)) {
+    Serial.println("⏳ Time not available yet...");
+    delay(500);
+  }
+  Serial.println("✅ Time synced!");
+
+  // LCD
   M5.Lcd.fillScreen(BLACK);
   M5.Lcd.setTextColor(WHITE);
   M5.Lcd.setTextSize(2);
@@ -87,10 +113,11 @@ float getSmoothedRSSI() {
   return (float)calculateMedian(rssi_buffer, RSSI_BUFFER_SIZE);
 }
 
+// ==== MAIN LOOP ====
 void loop() {
   if (!client.connected()) reconnectMQTT();
 
-  BLEScanResults foundDevices = pBLEScan->start(1, false);
+  BLEScanResults foundDevices = pBLEScan->start(1, false);  // Scan for 1 sec
   Serial.printf("Found %d BLE devices\n", foundDevices.getCount());
 
   bool userFound = false;
@@ -109,24 +136,32 @@ void loop() {
 
       float avg_rssi = getSmoothedRSSI();
 
-      // ✅ Piecewise distance model
+      // ✅ Distance model with gentle fallback
       float distance;
       if (avg_rssi > -70) {
         distance = pow(10, ((RSSI_at_1m - avg_rssi) / (10 * path_loss_exponent)));
       } else {
-        distance = 3.0f + 0.3f * (-avg_rssi - 70);  // Gentle growth
+        distance = 3.0f + 0.3f * (-avg_rssi - 70);
       }
       distance = min(distance, MAX_DISTANCE);
 
       Serial.printf("RSSI: %d | Smoothed: %.1f | Dist: %.2f m\n", rssi, avg_rssi, distance);
 
-      // MQTT
-      char payload[80];
-      snprintf(payload, sizeof(payload), "{ \"anchor\": %d, \"distance\": %.2f }", anchor_id, distance);
+      // 📅 Get current timestamp
+      struct tm timeinfo;
+      getLocalTime(&timeinfo);
+      char timeStr[30];
+      strftime(timeStr, sizeof(timeStr), "%Y-%m-%d %H:%M:%S", &timeinfo);
+
+      // 📦 Prepare MQTT payload
+      char payload[150];
+      snprintf(payload, sizeof(payload),
+               "{ \"anchor\": %d, \"distance\": %.2f, \"timestamp\": \"%s\" }",
+               anchor_id, distance, timeStr);
       client.publish(MQTT_TOPIC, payload);
       Serial.println(payload);
 
-      // LCD
+      // 📺 LCD Update
       M5.Lcd.fillScreen(BLACK);
       M5.Lcd.setCursor(10, 10);
       M5.Lcd.setTextColor(GREEN);
@@ -139,6 +174,7 @@ void loop() {
     }
   }
 
+  // Show fallback when user is not detected
   if (millis() - lastSeenTime > 3000) {
     M5.Lcd.fillScreen(BLACK);
     M5.Lcd.setTextColor(RED);
